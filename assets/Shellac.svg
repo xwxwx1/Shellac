@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Shellac" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1842.75 974">
+  <defs>
+    <style>
+      .cls-1 {
+        stroke: #1de9b6;
+      }
+
+      .cls-1, .cls-2 {
+        fill: #232629;
+      }
+
+      .cls-1, .cls-3, .cls-4 {
+        stroke-miterlimit: 10;
+      }
+
+      .cls-1, .cls-4 {
+        stroke-width: 30px;
+      }
+
+      .cls-3 {
+        stroke-width: 20px;
+      }
+
+      .cls-3, .cls-4 {
+        stroke: #232629;
+      }
+
+      .cls-3, .cls-5 {
+        fill: #b3b3b3;
+      }
+
+      .cls-6, .cls-4 {
+        fill: #1de9b6;
+      }
+    </style>
+  </defs>
+  <rect class="cls-1" x="147.85" y="98" width="677.5" height="778" rx="132.51" ry="132.51"/>
+  <circle class="cls-5" cx="487" cy="487" r="291"/>
+  <circle class="cls-2" cx="486.5" cy="487.5" r="169.5"/>
+  <polygon class="cls-4" points="348 292 348 682 720.06 486.99 348 292"/>
+  <circle class="cls-6" cx="240" cy="196" r="44"/>
+  <circle class="cls-5" cx="240" cy="778" r="44"/>
+  <circle class="cls-5" cx="734" cy="196" r="44"/>
+  <path class="cls-3" d="M774.89,734v-197h-9.38c-18.18,0-34.27,11.75-39.8,29.06l-37.09,115.94v76.87l-36.35,36.35v45.57h57.74c35.84,0,64.89-29.05,64.89-64.89v-41.9Z"/>
+</svg>

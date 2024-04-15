@@ -1,0 +1,6 @@
+numpy~=1.23.4
+tinytag~=1.9.0
+keyboard~=0.13.5
+PyQt6~=6.3.1
+pyffmpeg~=2.4.2.18.1
+just_playback~=0.1.7

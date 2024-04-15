@@ -1,0 +1,6 @@
+songdir:./songs/
+downloaddir:./downloading/
+downloadconfig:url:;tags:;ftype:mp3;yargs:--no-caption --debug;fiargs:;foargs:;weight:1;deletevid:True
+folders:
+loopmode:2
+savedir:
