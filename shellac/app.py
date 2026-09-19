@@ -2,7 +2,6 @@ import os
 import re
 import sys
 from copy import deepcopy, copy
-from ctypes import windll
 
 import tinytag
 import keyboard
@@ -19,11 +18,11 @@ from pyffmpeg import FFmpeg
 from threading import Thread
 import bisect
 
+from .config import load_config, edit_config, read_text_lines
+from .resources import asset, style
+
 audio_formats = ['mp3', 'flac', 'wav', 'ogg', 'wma', 'aac', 'alac']
 video_formats = ['mp4', 'flv', 'mkv', 'avi', 'mov', '3gp']
-
-windll.shell32.SetCurrentProcessExplicitAppUserModelID("shellac")
-
 
 def std_time(x, level=0):
     x = round(x)
@@ -51,7 +50,7 @@ class VersionPopup(QMainWindow):
         qt_material.apply_stylesheet(self, theme="dark_teal.xml")
         self.test = QLabel("TEST", self.root)
         self.logo = QLabel(self.root)
-        self.logo_pixmap = QPixmap("assets/shellac_banner.jpg")
+        self.logo_pixmap = QPixmap(asset("shellac_banner.jpg"))
         self.logo.setPixmap(self.logo_pixmap)
         self.logo.setGeometry(0, 0, 600, 300)
 
@@ -714,20 +713,19 @@ class Player(QMainWindow):
         self.next_to_play = None
         self.ffmpeg = FFmpeg()
         self.device_reset_cooldown = 0
-        self.icon = QIcon('assets/Shellac.ico')
-        with open("config.txt") as config: # TODO more comprehensive loading and editing of config?
-            config = {j[0]: ':'.join(j[1:]) for j in [i[:-1].split(':') for i in config.readlines()]} # stupidass python which reads each line into dict form, key and value separated with the first ":" in a line
-            self.song_dir = config['songdir']
-            self.download_dir = config['downloaddir']
-            self.download_config = {j[0]: ':'.join(j[1:]) for j in [i.split(':') for i in config['downloadconfig'].split(';')]}
-            self.file_folders = ['',
-                                 QStandardPaths.standardLocations(QStandardPaths.StandardLocation.DesktopLocation)[0],
-                                 QStandardPaths.standardLocations(QStandardPaths.StandardLocation.MusicLocation)[0],
-                                 self.song_dir
-            ]
-            self.file_folders.extend(config['folders'].split(';'))
-            self.loop_mode = int(config['loopmode'])
-            self.save_path = config['savedir']
+        self.icon = QIcon(asset('Shellac.ico'))
+        config = load_config()
+        self.song_dir = config['songdir']
+        self.download_dir = config['downloaddir']
+        self.download_config = {j[0]: ':'.join(j[1:]) for j in [i.split(':') for i in config['downloadconfig'].split(';')]}
+        self.file_folders = ['',
+                             QStandardPaths.standardLocations(QStandardPaths.StandardLocation.DesktopLocation)[0],
+                             QStandardPaths.standardLocations(QStandardPaths.StandardLocation.MusicLocation)[0],
+                             self.song_dir
+        ]
+        self.file_folders.extend(config['folders'].split(';'))
+        self.loop_mode = int(config['loopmode'])
+        self.save_path = config['savedir']
         self.initUI()
 
 
@@ -790,7 +788,7 @@ class Player(QMainWindow):
         self.refresh_loop_icon()
 
     def refresh_loop_icon(self):
-        self.loop_button.setIcon(QIcon(f"assets/loop_{['repeat', 'list', 'shuffle', 'none'][self.loop_mode]}.png"))
+        self.loop_button.setIcon(QIcon(asset(f"loop_{['repeat', 'list', 'shuffle', 'none'][self.loop_mode]}.png")))
 
     def save(self):
         if not self.window().isActiveWindow():
@@ -800,7 +798,7 @@ class Player(QMainWindow):
         self.edit_config('savedir', file)
         if not file:
             return
-        with open(file, mode='w+') as f:
+        with open(file, mode='w+', encoding='utf-8') as f:
             for i in self.playlist:
                 f.write(
                     f"path::{i.path};name::{i.name};tags::{', '.join(i.tags)};weight::{i.weight}\n"
@@ -818,9 +816,9 @@ class Player(QMainWindow):
 
     def load_playlist(self, file):
         try:
-            with open(file) as f:
-                for i in f.readlines():
-                    data = {j.split('::')[0]: j.split('::')[1] for j in i[:-1].split(';')}
+            for i in read_text_lines(file):
+                if i:
+                    data = {j.split('::')[0]: j.split('::')[1] for j in i.split(';')}
                     self.add(data['path'], data['name'], int(data['weight']), data['tags'].split(', '))
         except FileNotFoundError:
             return
@@ -986,17 +984,7 @@ class Player(QMainWindow):
         self.edit_config('downloadconfig', ';'.join([f'{i}:{self.download_config[i]}' for i in self.download_config.keys()]))
 
     def edit_config(self, key, value):
-        with open('config.txt', mode='r') as f:
-            data = f.readlines()
-        found = False
-        for i, line in enumerate(data):
-            if len(line) > 0 and line[:len(key)] == key:
-                data[i] = f'{key}:{value}\n'
-                found = True
-        if not found:
-            data.append(f'{key}:{value}\n')
-        with open('config.txt', mode='w+') as f:
-            f.writelines(data)
+        edit_config(key, value)
 
     def execute_download(self):
         url = self.download_data['url']
@@ -1159,17 +1147,17 @@ class Player(QMainWindow):
         self.pause_button = QPushButton(self.centralwidget)
         self.pause_button.setGeometry(QRect(72, button_ypos, 24, 24))
         self.pause_button.setObjectName("pause_button")
-        self.pause_button.setIcon(QIcon("assets/pause.png"))
+        self.pause_button.setIcon(QIcon(asset("pause.png")))
         self.pause_button.setShortcut("Space")
         self.last_button = QPushButton(self.centralwidget)
         self.last_button.setGeometry(QRect(45, button_ypos, 24, 24))
         self.last_button.setObjectName("last_button")
-        self.last_button.setIcon(QIcon("assets/last.png"))
+        self.last_button.setIcon(QIcon(asset("last.png")))
         self.last_button.setShortcut(Qt.Key.Key_BracketLeft)
         self.next_button = QPushButton(self.centralwidget)
         self.next_button.setGeometry(QRect(99, button_ypos, 24, 24))
         self.next_button.setObjectName("next_button")
-        self.next_button.setIcon(QIcon("assets/next.png"))
+        self.next_button.setIcon(QIcon(asset("next.png")))
         self.next_button.setShortcut(Qt.Key.Key_BracketRight)
         self.loop_button = QPushButton(self.centralwidget)
         self.loop_button.setGeometry(QRect(135, button_ypos, 24, 24))
@@ -1179,13 +1167,13 @@ class Player(QMainWindow):
         self.up_button = QPushButton(self.centralwidget)
         self.up_button.setGeometry(QRect(600, button_ypos, 24, 24))
         self.up_button.setObjectName("up_button")
-        self.up_button.setIcon(QIcon("assets/up.png"))
+        self.up_button.setIcon(QIcon(asset("up.png")))
         self.up_button.setShortcut(Qt.Key.Key_Up + Qt.Key.Key_Shift)
 
         self.down_button = QPushButton(self.centralwidget)
         self.down_button.setGeometry(QRect(635, button_ypos, 24, 24))
         self.down_button.setObjectName("down_button")
-        self.down_button.setIcon(QIcon("assets/down.png"))
+        self.down_button.setIcon(QIcon(asset("down.png")))
         self.down_button.setShortcut(Qt.Key.Key_Down + Qt.Key.Key_Shift)
         self.progress_bar = QSlider(Qt.Orientation.Horizontal, self.centralwidget)
         self.progress_bar.setGeometry(QRect(20, button_ypos-25, 1450, 10))
@@ -1199,7 +1187,7 @@ class Player(QMainWindow):
         self.volume_control.setValue(100)
         self.mute_button = QPushButton(self.centralwidget)
         self.mute_button.setGeometry(180, button_ypos, 24, 24)
-        self.mute_button.setIcon(QIcon('assets/volume_3.png'))
+        self.mute_button.setIcon(QIcon(asset('volume_3.png')))
         self.volume_view = QLabel('100', self.centralwidget)
         self.volume_view.setGeometry(330, button_ypos + 5, 30, 16)
         self.volume_view.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -1353,7 +1341,7 @@ class Player(QMainWindow):
         # self.menu.addAction(version)
 
         self.file_dialog = QFileDialog(self)
-        self.file_dialog.setWindowIcon(QIcon('assets/Shellac.ico'))
+        self.file_dialog.setWindowIcon(QIcon(asset('Shellac.ico')))
         self.file_dialog.setViewMode(QFileDialog.ViewMode.List)
         self.file_dialog.setOption(QFileDialog.Option.DontUseNativeDialog)
         self.file_dialog.setSidebarUrls([
@@ -1383,7 +1371,6 @@ class Player(QMainWindow):
             self.device_reset_cooldown = 0
         else:
             self.device_reset_cooldown += 1
-        w.setWindowIcon(self.icon)
 
     def edit_filter(self):
         dialog = FilterDialog(self, self.playlist.filter)
@@ -1420,9 +1407,9 @@ class Player(QMainWindow):
 
     def refresh_pause_icon(self):
         if self.player and self.player.is_playing:
-            self.pause_button.setIcon(QIcon('assets/pause.png'))
+            self.pause_button.setIcon(QIcon(asset('pause.png')))
         else:
-            self.pause_button.setIcon(QIcon('assets/play.png'))
+            self.pause_button.setIcon(QIcon(asset('play.png')))
 
     def start_drag(self):
         self.is_dragging = True
@@ -1472,13 +1459,13 @@ class Player(QMainWindow):
 
     def refresh_mute_icon(self):
         if self.volume == 0:
-            self.mute_button.setIcon(QIcon('assets/volume_0.png'))
+            self.mute_button.setIcon(QIcon(asset('volume_0.png')))
         elif self.volume <= 0.5:
-            self.mute_button.setIcon(QIcon(f'assets/volume_1{"_mute" if self.is_muted else ""}'))
+            self.mute_button.setIcon(QIcon(asset(f'volume_1{"_mute" if self.is_muted else ""}')))
         elif self.volume <= 1:
-            self.mute_button.setIcon(QIcon(f'assets/volume_2{"_mute" if self.is_muted else ""}'))
+            self.mute_button.setIcon(QIcon(asset(f'volume_2{"_mute" if self.is_muted else ""}')))
         else:
-            self.mute_button.setIcon(QIcon(f'assets/volume_3{"_mute" if self.is_muted else ""}'))
+            self.mute_button.setIcon(QIcon(asset(f'volume_3{"_mute" if self.is_muted else ""}')))
 
     def clear(self):
         if not self.window().isActiveWindow():
@@ -1528,7 +1515,7 @@ class Player(QMainWindow):
             label.setGeometry(10, 10, 280, 30)
             text.setGeometry(10, 40, 280, 50)
             buttons.setGeometry(10, 100, 280, 80)
-            dialog.setWindowIcon(QIcon('assets/Shellac.ico'))
+            dialog.setWindowIcon(QIcon(asset('Shellac.ico')))
             dialog.exec()
             if dialog.result() == 1:
                 for i in text.toPlainText().split(';'):
@@ -1601,21 +1588,19 @@ class Player(QMainWindow):
             self.model.set_playlist(self.playlist)
 
 
-style_file = 'styles/default.qss'
-style_sheet = QSSLoader.read_qss_file(style_file)
+def main():
+    if sys.platform == 'win32':
+        from ctypes import windll
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID("shellac")
 
-app = QApplication(sys.argv)
+    app = QApplication(sys.argv)
+    app.setApplicationName('Shellac')
+    app.setWindowIcon(QIcon(asset('Shellac.ico')))
 
-w = Player()
+    w = Player()
+    w.setStyleSheet(QSSLoader.read_qss_file(style('default.qss')))
+    w.setWindowIcon(QIcon(asset('Shellac.ico')))
+    qt_material.apply_stylesheet(app, theme="dark_teal.xml")
 
-w.setStyleSheet(style_sheet)
-app.setWindowIcon(QIcon('assets/Shellac.ico'))
-w.setWindowIcon(QIcon('assets/Shellac.ico'))
-
-
-
-qt_material.apply_stylesheet(app, theme="dark_teal.xml")
-
-w.show()
-sys.exit(app.exec())
-
+    w.show()
+    return app.exec()
