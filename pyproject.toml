@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shellac"
-version = "1.1.0"
+version = "2.0.0"
 description = "A tag- and weight-based music player"
 readme = "README.txt"
 license = { file = "LICENSE" }
@@ -13,8 +13,7 @@ dependencies = [
     "PyQt6>=6.5",
     "qt-material>=2.14",
     "tinytag>=1.9",
-    "you-get>=0.4.1650",
-    "pyffmpeg>=2.4.2",
+    "yt-dlp>=2025.1",
     "imageio-ffmpeg>=0.5",
     "platformdirs>=3",
 ]

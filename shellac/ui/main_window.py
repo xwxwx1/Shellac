@@ -29,8 +29,10 @@ from ..core.history import History
 from ..core.ordering import LoopMode, moved_to_edge, pick_next, shifted
 from ..core.song import AUDIO_EXTENSIONS, is_audio_file, song_from_file
 from ..core.timefmt import format_time
+from ..download.worker import DownloadJob
 from ..playback.player import MAX_VOLUME, AudioPlayer
 from ..resources import asset
+from .dialogs.download_dialog import DownloadDialog
 from .dialogs.filter_dialog import FilterDialog
 from .dialogs.song_dialog import SongDialog
 from .playlist_model import ARTIST, LENGTH, NAME, TAGS, WEIGHT, FilterProxy, PlaylistModel
@@ -62,6 +64,7 @@ class MainWindow(QMainWindow):
         self.history = History()
         self.scanner = Scanner(self)
         self.current = None  # the song loaded in the player
+        self.downloads = []  # running DownloadJobs
 
         self._icons = {}
         self._dragging_slider = False
@@ -164,7 +167,9 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls)
         self.setCentralWidget(central)
 
+        self.download_label = QLabel()
         self.filter_label = QLabel()
+        self.statusBar().addPermanentWidget(self.download_label)
         self.statusBar().addPermanentWidget(self.filter_label)
 
     def _action(self, menu, text, shortcuts, slot, tip=''):
@@ -202,6 +207,11 @@ class MainWindow(QMainWindow):
         file.addSeparator()
         self.remove_action = self._action(file, 'Remove Selected', ['Delete'], self.remove_selected)
         self._action(file, 'Clear Playlist', ['Alt+Shift+Delete'], self.clear_playlist)
+        file.addSeparator()
+        self._action(file, 'Download from Internet…', ['Alt+Ctrl+D'], self.download_dialog,
+                     'Download audio from a URL with yt-dlp')
+        self.cancel_downloads_action = self._action(file, 'Cancel Downloads', [], self.cancel_downloads)
+        self.cancel_downloads_action.setEnabled(False)
         file.addSeparator()
         self._action(file, 'Exit', ['Ctrl+Q'], self.close)
 
@@ -574,6 +584,54 @@ class MainWindow(QMainWindow):
                                       f'{self.proxy.rowCount()} of {len(self.model.playlist)} songs')
 
     # =========================================================================================
+    # downloads
+    # =========================================================================================
+
+    def download_dialog(self):
+        dialog = DownloadDialog(self, cfg.DownloadSettings.parse(self.config.get('downloadconfig')))
+        if not dialog.exec():
+            return
+        if dialog.remember:
+            self.config['downloadconfig'] = dialog.settings().dump()
+            cfg.edit_config('downloadconfig', self.config['downloadconfig'])
+        self.start_download(dialog.request)
+
+    def start_download(self, request):
+        job = DownloadJob(request, self.song_dir, self.download_dir, self)
+        job.progress.connect(self.download_label.setText)
+        job.succeeded.connect(self._on_download_succeeded)
+        # Bound methods (not lambdas) so Qt queues these onto the GUI thread; sender() is the job.
+        job.failed.connect(self._on_download_failed)
+        job.aborted.connect(self._on_download_aborted)
+        job.finished.connect(self._on_download_finished)
+        self.downloads.append(job)
+        self.cancel_downloads_action.setEnabled(True)
+        job.start()
+
+    def _on_download_succeeded(self, song):
+        self.model.add_songs([song])
+        self.statusBar().showMessage(f'Downloaded {song.name}', 6000)
+
+    def _on_download_failed(self, message):
+        name = self.sender().request.name
+        QMessageBox.warning(self, 'Download Failed', f'Could not download {name}:\n\n{message}')
+
+    def _on_download_aborted(self):
+        self.statusBar().showMessage(f'Cancelled download of {self.sender().request.name}', 6000)
+
+    def _on_download_finished(self):
+        job = self.sender()
+        self.downloads.remove(job)
+        job.deleteLater()
+        self.cancel_downloads_action.setEnabled(bool(self.downloads))
+        if not self.downloads:
+            self.download_label.setText('')
+
+    def cancel_downloads(self):
+        for job in self.downloads:
+            job.cancel()
+
+    # =========================================================================================
     # window events
     # =========================================================================================
 
@@ -592,5 +650,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.player.stop()
+        for job in list(self.downloads):
+            job.cancel()
+            job.wait(5000)
         self.scanner.wait(3000)
         super().closeEvent(event)

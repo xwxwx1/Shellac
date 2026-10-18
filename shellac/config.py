@@ -128,7 +128,7 @@ class DownloadSettings:
         old = dict(part.split(':', 1) for part in value.split(';') if ':' in part)
         return cls(
             tags=old.get('tags', ''),
-            format=old.get('ftype') or 'mp3',
+            format={'aac': 'm4a'}.get(old.get('ftype'), old.get('ftype') or 'mp3'),
             ffmpeg_args=old.get('foargs', ''),
             weight=old.get('weight', 1),
             keep_source=old.get('deletevid', 'True') != 'True',

@@ -13,8 +13,8 @@ FORMATS = {
     'wav': ('wav', ['-c:a', 'pcm_s16le']),
     'ogg': ('ogg', ['-c:a', 'libvorbis', '-q:a', '5']),
     'opus': ('opus', ['-c:a', 'libopus', '-b:a', '160k']),
+    # AAC goes in an .m4a container: raw .aac streams carry no duration or tags.
     'm4a': ('m4a', ['-c:a', 'aac', '-b:a', '192k']),
-    'aac': ('aac', ['-c:a', 'aac', '-b:a', '192k']),
     'alac': ('m4a', ['-c:a', 'alac']),
     'wma': ('wma', ['-c:a', 'wmav2', '-b:a', '192k']),
 }

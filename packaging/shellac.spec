@@ -13,8 +13,8 @@ a = Analysis(
         (str(pkg / 'assets'), 'shellac/assets'),
         (str(pkg / 'default_config.txt'), 'shellac'),
         *collect_data_files('qt_material'),
+        *collect_data_files('imageio_ffmpeg'),
     ],
-    hiddenimports=['you_get.extractors'],
 )
 pyz = PYZ(a.pure)
 exe = EXE(
