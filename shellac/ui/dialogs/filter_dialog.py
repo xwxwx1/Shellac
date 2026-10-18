@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ...core.filter import Filter, TagTerm
+from ...core.filter import Filter, TagTerm, parse_rules
 
 TermRole = Qt.ItemDataRole.UserRole + 1
 EMPTY_TERM = '(empty — type a tag below and press Set Tag)'
@@ -41,8 +41,15 @@ class FilterDialog(QDialog):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.summary = QLabel()
-        self.summary.setWordWrap(True)
+        self._typing_query = False
+        self.query_edit = QLineEdit()
+        self.query_edit.setPlaceholderText('e.g. "Miles Davis" AND NOT live OR jazz')
+        self.query_edit.setToolTip('Type the tag rules directly, or build them with the buttons below.\n'
+                                   'AND binds tighter than OR; quote tags with spaces.')
+        self.query_edit.textEdited.connect(self._query_edited)
+        self.query_error = QLabel()
+        self.query_error.setStyleSheet('color: #e57373')
+        self.query_error.setWordWrap(True)
         self.tree.currentItemChanged.connect(self._load_current_term)
 
         add_rule = QPushButton('Add Rule')
@@ -77,8 +84,10 @@ class FilterDialog(QDialog):
         for b in (add_rule, add_tag, delete):
             row.addWidget(b)
         row.addStretch()
+        layout.addWidget(QLabel('Tag rules:'))
+        layout.addWidget(self.query_edit)
+        layout.addWidget(self.query_error)
         layout.addLayout(row)
-        layout.addWidget(self.summary)
         layout.addWidget(self.tree, 1)
         row = QHBoxLayout()
         row.addWidget(self.tag_edit, 1)
@@ -126,7 +135,25 @@ class FilterDialog(QDialog):
             rule.setText(0, text or '(empty rule)')
             if text:
                 texts.append(text)
-        self.summary.setText('Tags: ' + (' OR '.join(texts) or '(no rules: tags are not filtered)'))
+        if not self._typing_query:
+            self.query_edit.setText(' OR '.join(texts))
+            self.query_error.setText('')
+
+    def _query_edited(self, text):
+        try:
+            rules = parse_rules(text)
+        except ValueError as e:
+            self.query_error.setText(str(e))
+            return
+        self.query_error.setText('')
+        self._typing_query = True
+        self.tree.clear()
+        for rule in rules:
+            rule_item = self._new_rule()
+            for term in rule:
+                self._new_term(rule_item, term)
+        self._refresh()
+        self._typing_query = False
 
     def _load_current_term(self, item, _previous=None):
         term = item.data(0, TermRole) if item is not None and item.parent() is not None else None
@@ -203,6 +230,9 @@ class FilterDialog(QDialog):
     def accept(self):
         if not self._validate_regex():
             QMessageBox.warning(self, 'Filter', self.regex_error.text())
+            return
+        if self.query_error.text():
+            QMessageBox.warning(self, 'Filter', f'The tag rules are invalid: {self.query_error.text()}')
             return
         super().accept()
 

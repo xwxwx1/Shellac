@@ -4,3 +4,9 @@ downloadconfig:{"tags": "", "format": "mp3", "ytdlp_args": "", "ffmpeg_args": ""
 folders:
 loopmode:2
 savedir:
+theme:dark_teal.xml
+restoresession:True
+artisttags:True
+norepeatshuffle:False
+trayicon:True
+mediakeys:True

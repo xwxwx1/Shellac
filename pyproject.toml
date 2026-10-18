@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shellac"
-version = "2.0.0"
+dynamic = ["version"]
 description = "A tag- and weight-based music player"
 readme = "README.txt"
 license = { file = "LICENSE" }
@@ -25,7 +25,10 @@ dev = ["pytest>=8", "pytest-qt>=4.4", "ruff>=0.6", "pyinstaller>=6"]
 shellac = "shellac.__main__:main"
 
 [tool.setuptools]
-packages = ["shellac", "shellac.core", "shellac.playback", "shellac.download", "shellac.ui", "shellac.ui.dialogs", "shellac.ui.widgets"]
+packages = ["shellac", "shellac.core", "shellac.playback", "shellac.download", "shellac.ui", "shellac.ui.dialogs", "shellac.ui.widgets", "shellac.system"]
+
+[tool.setuptools.dynamic]
+version = { attr = "shellac.__version__" }
 
 [tool.setuptools.package-data]
 shellac = ["assets/*", "default_config.txt"]

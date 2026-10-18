@@ -32,15 +32,18 @@ class _Signals(QObject):
 
 
 class _ScanTask(QRunnable):
-    def __init__(self, items, signals):
+    def __init__(self, items, signals, artist_as_tag):
         super().__init__()
         self._items = items
         self._signals = signals
+        self._artist_as_tag = artist_as_tag
 
     def run(self):
         batch = []
         for entry in expand_paths(self._items):
-            batch.append(song_from_file(entry.path, entry.name, entry.tags, entry.weight))
+            # Playlist entries carry the user's own tags (even an empty list), so leave them alone.
+            seed = self._artist_as_tag and not entry.name and not entry.tags
+            batch.append(song_from_file(entry.path, entry.name, entry.tags, entry.weight, artist_as_tag=seed))
             if len(batch) >= BATCH:
                 self._signals.batch.emit(batch)
                 batch = []
@@ -58,7 +61,7 @@ class Scanner(QObject):
         self._pool.setMaxThreadCount(2)
         self._active = set()
 
-    def scan(self, items, on_batch, on_done=None):
+    def scan(self, items, on_batch, on_done=None, artist_as_tag=False):
         """items: file/folder paths or PlaylistEntry objects. Callbacks run on the GUI thread."""
         signals = _Signals(self)  # owned here, so signals are delivered via the GUI thread's queue
         self._active.add(signals)
@@ -70,7 +73,7 @@ class Scanner(QObject):
             if on_done:
                 on_done()
         signals.done.connect(finished)
-        self._pool.start(_ScanTask(list(items), signals))
+        self._pool.start(_ScanTask(list(items), signals, artist_as_tag))
 
     @property
     def busy(self) -> bool:

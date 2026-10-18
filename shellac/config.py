@@ -86,6 +86,15 @@ def sidebar_folders(config):
     return [f for f in (p.strip() for p in config.get('folders', '').split(';')) if f]
 
 
+def session_path():
+    return CONFIG_DIR / 'session.json'
+
+
+def flag(config, key):
+    """A True/False setting."""
+    return str(config.get(key, '')).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 def loop_mode(config):
     try:
         return int(config.get('loopmode', 2)) % 4

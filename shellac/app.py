@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import QApplication
 
 from . import config
 from .resources import asset
-from .ui.main_window import MainWindow
+from .system.single_instance import InstanceServer, send_to_running
+from .ui.main_window import MainWindow, apply_theme
 
 
 def main(argv=None):
@@ -16,14 +17,24 @@ def main(argv=None):
         # Gives Shellac its own taskbar entry and icon instead of python.exe's.
         windll.shell32.SetCurrentProcessExplicitAppUserModelID('shellac')
 
-    import qt_material  # imported after PyQt6 so it picks the right Qt binding
-
     app = QApplication(argv)
     app.setApplicationName('Shellac')
     app.setWindowIcon(QIcon(asset('Shellac.ico')))
-    qt_material.apply_stylesheet(app, theme='dark_teal.xml')
 
-    window = MainWindow(config.load_config())
+    paths = argv[1:]
+    if send_to_running(paths):
+        return 0  # an existing window takes the files and comes to the front
+    server = InstanceServer(parent=app)
+    server.listen()
+
+    settings = config.load_config()
+    apply_theme(app, settings.get('theme'))
+    window = MainWindow(settings)
+    server.messageReceived.connect(window.on_other_instance)
+
+    if config.flag(settings, 'restoresession'):
+        window.restore_session(on_done=lambda: window.open_paths(paths))
+    else:
+        window.open_paths(paths)
     window.show()
-    window.open_paths(argv[1:])
     return app.exec()

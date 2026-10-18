@@ -24,6 +24,7 @@ class AudioPlayer(QObject):
         self._devices = QMediaDevices(self)
         self._volume = 100
         self._muted = False
+        self._pending_position = None  # seconds to seek to once the media has loaded
         self._apply_volume()
 
         self._player.positionChanged.connect(lambda ms: self.positionChanged.emit(ms / 1000))
@@ -64,8 +65,15 @@ class AudioPlayer(QObject):
     # --- control -----------------------------------------------------------------------------
 
     def play_file(self, path: str):
+        self._pending_position = None
         self._player.setSource(QUrl.fromLocalFile(path))
         self._player.play()
+
+    def load(self, path: str, position: float = 0.0):
+        """Load a file paused, ready to resume at `position` (used to restore the last session)."""
+        self._pending_position = position if position > 0 else None
+        self._player.setSource(QUrl.fromLocalFile(path))
+        self._player.pause()
 
     def play(self):
         if self.has_media:
@@ -81,7 +89,9 @@ class AudioPlayer(QObject):
             self.play()
 
     def stop(self):
-        self._player.stop()
+        # Clearing the source stops playback too. Calling QMediaPlayer.stop() first can deadlock in Qt's
+        # FFmpeg backend when a track was started moments earlier (reproduced with Qt 6.11).
+        self._pending_position = None
         self._player.setSource(QUrl())
 
     def seek(self, seconds: float):
@@ -103,7 +113,11 @@ class AudioPlayer(QObject):
     # --- signal handlers ---------------------------------------------------------------------
 
     def _on_status(self, status):
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+        loaded = status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)
+        if loaded and self._pending_position is not None:
+            position, self._pending_position = self._pending_position, None
+            self.seek(position)
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
             self.ended.emit()
         elif status == QMediaPlayer.MediaStatus.InvalidMedia and self._player.error() == QMediaPlayer.Error.NoError:
             # Usually errorOccurred reports this; only speak up if it didn't.

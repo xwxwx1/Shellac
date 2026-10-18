@@ -1,26 +1,35 @@
-"""Qt models over core.Playlist: the table model and the filtering proxy in front of it."""
+"""Qt models over core.Playlist: the table model and the filtering/sorting proxy in front of it."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
-from PyQt6.QtGui import QFont
+import json
+
+from PyQt6.QtCore import QAbstractTableModel, QMimeData, QModelIndex, QSortFilterProxyModel, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont
 
 from ..core.filter import Filter
 from ..core.playlist import Playlist
+from ..core.song import parse_tags
 from ..core.timefmt import format_time
 
 SongRole = Qt.ItemDataRole.UserRole + 1
+SortRole = Qt.ItemDataRole.UserRole + 2
 
-COLUMNS = ('Name', 'Length', 'Tags', 'Artist', 'Weight')
-NAME, LENGTH, TAGS, ARTIST, WEIGHT = range(len(COLUMNS))
+COLUMNS = ('Name', 'Length', 'Tags', 'Artist', 'Album', 'Weight')
+NAME, LENGTH, TAGS, ARTIST, ALBUM, WEIGHT = range(len(COLUMNS))
+EDITABLE = (NAME, TAGS, WEIGHT)
+
+SONGS_MIME = 'application/x-shellac-songs'
 
 
 class PlaylistModel(QAbstractTableModel):
+    songEdited = pyqtSignal(object)  # Song changed by in-place editing
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.playlist = Playlist()
         self._playing = None
-        self._bold = QFont()
-        self._bold.setBold(True)
+        self._fonts = {}
+        self._missing_color = QColor(150, 150, 150)
 
     # --- read --------------------------------------------------------------------------------
 
@@ -35,7 +44,18 @@ class PlaylistModel(QAbstractTableModel):
             if orientation == Qt.Orientation.Horizontal:
                 return COLUMNS[section]
             return str(section + 1)
+        if role == Qt.ItemDataRole.ToolTipRole and orientation == Qt.Orientation.Horizontal and section in EDITABLE:
+            return 'Press F2 or click a selected cell to edit'
         return None
+
+    def _font(self, bold, italic):
+        key = (bold, italic)
+        if key not in self._fonts:
+            font = QFont()
+            font.setBold(bold)
+            font.setItalic(italic)
+            self._fonts[key] = font
+        return self._fonts[key]
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
@@ -51,23 +71,88 @@ class PlaylistModel(QAbstractTableModel):
                 return ', '.join(song.tags)
             if col == ARTIST:
                 return song.artist
+            if col == ALBUM:
+                return song.album or ''
             if col == WEIGHT:
                 return song.weight
+        elif role == Qt.ItemDataRole.EditRole:
+            return {NAME: song.name, TAGS: ', '.join(song.tags), WEIGHT: song.weight}.get(col)
+        elif role == SortRole:
+            if col == LENGTH:
+                return song.duration if song.duration is not None else -1.0
+            if col == WEIGHT:
+                return song.weight
+            text = {NAME: song.name, TAGS: ', '.join(song.tags), ARTIST: song.artist, ALBUM: song.album or ''}[col]
+            return text.casefold()
         elif role == SongRole:
             return song
         elif role == Qt.ItemDataRole.ToolTipRole:
-            return song.path if song.exists else f'{song.path}\n(file not found)'
-        elif role == Qt.ItemDataRole.FontRole and song is self._playing:
-            return self._bold
+            return f'{song.path}\n(file not found — right-click › Locate File…)' if song.missing else song.path
+        elif role == Qt.ItemDataRole.FontRole and (song is self._playing or song.missing):
+            return self._font(song is self._playing, song.missing)
+        elif role == Qt.ItemDataRole.ForegroundRole and song.missing:
+            return self._missing_color
         elif role == Qt.ItemDataRole.TextAlignmentRole and col in (LENGTH, WEIGHT):
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         return None
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.ItemIsDropEnabled  # drops land between rows, never on them
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
+        if index.column() in EDITABLE:
+            flags |= Qt.ItemFlag.ItemIsEditable
+        return flags
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if not index.isValid() or role != Qt.ItemDataRole.EditRole:
+            return False
+        song = self.playlist[index.row()]
+        col = index.column()
+        if col == NAME:
+            name = str(value).strip()
+            if not name:
+                return False
+            self.playlist.update(song, name=name)
+        elif col == TAGS:
+            self.playlist.update(song, tags=parse_tags(str(value)))
+        elif col == WEIGHT:
+            try:
+                self.playlist.update(song, weight=max(0, int(value)))
+            except (TypeError, ValueError):
+                return False
+        else:
+            return False
+        self._row_changed(song)
+        self.songEdited.emit(song)
+        return True
 
     def song_at(self, row: int):
         return self.playlist[row]
 
     def row_of(self, song) -> int:
         return self.playlist.index(song)
+
+    # --- drag and drop -----------------------------------------------------------------------
+
+    def supportedDropActions(self):
+        return Qt.DropAction.MoveAction | Qt.DropAction.CopyAction
+
+    def mimeTypes(self):
+        return [SONGS_MIME, 'text/uri-list']
+
+    def mimeData(self, indexes):
+        rows = sorted({i.row() for i in indexes})
+        data = QMimeData()
+        # Only a private type: offering file URLs would let Explorer *move* the files on a drop.
+        data.setData(SONGS_MIME, json.dumps([self.playlist[r].path for r in rows]).encode())
+        return data
+
+    def canDropMimeData(self, data, action, row, column, parent):
+        return data.hasFormat(SONGS_MIME) or data.hasUrls()
+
+    def dropMimeData(self, data, action, row, column, parent):
+        return False  # PlaylistView handles drops itself
 
     # --- write -------------------------------------------------------------------------------
 
@@ -107,6 +192,24 @@ class PlaylistModel(QAbstractTableModel):
         self.playlist.update(song, name, tags, weight)
         self._row_changed(song)
 
+    def relocate(self, song, path):
+        self.playlist.relocate(song, path)  # may raise ValueError
+        self._row_changed(song)
+
+    def refresh_missing(self) -> int:
+        """Re-check which files exist; returns how many are missing."""
+        changed = False
+        for song in self.playlist:
+            before = song.missing
+            changed |= song.check_missing() != before
+        if changed and len(self.playlist):
+            self.dataChanged.emit(self.index(0, 0), self.index(len(self.playlist) - 1, len(COLUMNS) - 1))
+        return sum(s.missing for s in self.playlist)
+
+    def song_changed(self, song):
+        if song in self.playlist:
+            self._row_changed(song)
+
     def reorder(self, new_order):
         """Rearrange a subset of songs (see Playlist.reorder), keeping selections attached to their songs."""
         self.layoutAboutToBeChanged.emit()
@@ -128,23 +231,61 @@ class PlaylistModel(QAbstractTableModel):
 
 
 class FilterProxy(QSortFilterProxyModel):
-    """Shows the songs passing a core Filter, in playlist order."""
+    """Shows the songs passing the filter, search text and tag selection; optionally sorted by a column."""
 
     def __init__(self, source: PlaylistModel, parent=None):
         super().__init__(parent)
         self.setSourceModel(source)
+        self.setSortRole(SortRole)
         self._filter = Filter()
+        self._search = ''
+        self._tags = ()
 
     @property
     def filter(self) -> Filter:
         return self._filter
 
+    @property
+    def search(self) -> str:
+        return self._search
+
+    @property
+    def required_tags(self) -> tuple:
+        return self._tags
+
+    @property
+    def is_sorted(self) -> bool:
+        return self.sortColumn() >= 0
+
+    @property
+    def is_filtered(self) -> bool:
+        return not self._filter.is_empty or bool(self._search) or bool(self._tags)
+
     def set_filter(self, f: Filter):
         self._filter = f
         self.invalidateFilter()
 
+    def set_search(self, text: str):
+        text = text.strip().casefold()
+        if text != self._search:
+            self._search = text
+            self.invalidateFilter()
+
+    def set_required_tags(self, tags):
+        tags = tuple(tags)
+        if tags != self._tags:
+            self._tags = tags
+            self.invalidateFilter()
+
+    def _matches_search(self, song) -> bool:
+        haystack = '\n'.join([song.name, *song.tags, song.album or '']).casefold()
+        return all(word in haystack for word in self._search.split())
+
     def filterAcceptsRow(self, source_row, source_parent):
-        return self._filter.check(self.sourceModel().song_at(source_row))
+        song = self.sourceModel().song_at(source_row)
+        return (self._filter.check(song)
+                and all(tag in song.tags for tag in self._tags)
+                and (not self._search or self._matches_search(song)))
 
     def song_at(self, row: int):
         return self.index(row, 0).data(SongRole)
