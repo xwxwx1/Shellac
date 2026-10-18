@@ -13,7 +13,6 @@ dependencies = [
     "PyQt6>=6.5",
     "qt-material>=2.14",
     "tinytag>=1.9",
-    "keyboard>=0.13.5",
     "you-get>=0.4.1650",
     "pyffmpeg>=2.4.2",
     "imageio-ffmpeg>=0.5",
@@ -27,14 +26,13 @@ dev = ["pytest>=8", "pytest-qt>=4.4", "ruff>=0.6", "pyinstaller>=6"]
 shellac = "shellac.__main__:main"
 
 [tool.setuptools]
-packages = ["shellac"]
+packages = ["shellac", "shellac.core", "shellac.playback", "shellac.download", "shellac.ui", "shellac.ui.dialogs", "shellac.ui.widgets"]
 
 [tool.setuptools.package-data]
-shellac = ["assets/*", "styles/*", "default_config.txt"]
+shellac = ["assets/*", "default_config.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 110
-extend-exclude = ["shellac/app.py"]

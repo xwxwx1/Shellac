@@ -11,7 +11,6 @@ a = Analysis(
     pathex=[str(root)],
     datas=[
         (str(pkg / 'assets'), 'shellac/assets'),
-        (str(pkg / 'styles'), 'shellac/styles'),
         (str(pkg / 'default_config.txt'), 'shellac'),
         *collect_data_files('qt_material'),
     ],
