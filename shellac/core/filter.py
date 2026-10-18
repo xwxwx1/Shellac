@@ -3,11 +3,21 @@
 Tag rules are in disjunctive normal form: a song passes if it satisfies *any* rule, and it
 satisfies a rule if it matches *all* of that rule's terms. A term either requires a tag or
 (negated) forbids it.
+
+Rules can also be written as text, e.g. ``"Miles Davis" AND NOT live OR jazz``: AND binds
+tighter than OR, NOT negates one tag, and tags containing spaces or keywords are quoted.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+_KEYWORDS = {'and': 'AND', '&': 'AND', 'or': 'OR', '|': 'OR', 'not': 'NOT', '!': 'NOT'}
+_TOKEN = re.compile(r'\s*(?:"((?:[^"\\]|\\.)*)"|([&|!()])|([^\s"&|!()]+))')
+
+
+def _quote(tag: str) -> str:
+    return '"' + tag.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 @dataclass(frozen=True)
@@ -19,7 +29,58 @@ class TagTerm:
         return (self.tag in tags) == self.required
 
     def __str__(self):
-        return ('' if self.required else 'NOT ') + f'"{self.tag}"'
+        return ('' if self.required else 'NOT ') + _quote(self.tag)
+
+
+def _tokens(text: str):
+    """Yield ('TAG', name) or ('AND'|'OR'|'NOT', None)."""
+    pos = 0
+    text = text.rstrip()
+    while pos < len(text):
+        match = _TOKEN.match(text, pos)
+        if not match or match.end() == pos:
+            raise ValueError(f'Unexpected character at position {pos + 1}: {text[pos:pos + 10]!r}')
+        quoted, symbol, word = match.groups()
+        pos = match.end()
+        if quoted is not None:
+            yield 'TAG', re.sub(r'\\(.)', r'\1', quoted)
+        elif symbol and symbol in '()':
+            raise ValueError('Parentheses are not supported; write the rule as alternatives joined by OR')
+        else:
+            keyword = _KEYWORDS.get((symbol or word).lower())
+            if keyword:
+                yield keyword, None
+            else:
+                yield 'TAG', word
+
+
+def parse_rules(text: str) -> tuple[tuple[TagTerm, ...], ...]:
+    """Parse a tag query into rules. Raises ValueError with a readable message."""
+    rules, terms = [], []
+    negate = False
+    expect_term = True
+    for kind, value in _tokens(text):
+        if kind == 'TAG':
+            if not expect_term:
+                raise ValueError(f'Missing AND/OR before "{value}" (quote tags that contain spaces)')
+            terms.append(TagTerm(value, required=not negate))
+            negate, expect_term = False, False
+        elif kind == 'NOT':
+            if not expect_term or negate:
+                raise ValueError('NOT must come right before a tag')
+            negate = True
+        else:  # AND / OR
+            if expect_term:
+                raise ValueError(f'{kind} must come between two tags')
+            if kind == 'OR':
+                rules.append(tuple(terms))
+                terms = []
+            expect_term = True
+    if negate or (expect_term and (terms or rules)):
+        raise ValueError('The query ends unexpectedly')
+    if terms:
+        rules.append(tuple(terms))
+    return tuple(rules)
 
 
 @dataclass(frozen=True)
@@ -63,3 +124,16 @@ class Filter:
         if self.rules:
             parts.append(self.describe_rules())
         return (' AND ' if self.strict else ' OR ').join(parts)
+
+    def to_dict(self) -> dict:
+        return {'regex': self.regex, 'strict': self.strict,
+                'rules': [[[t.tag, t.required] for t in rule] for rule in self.rules]}
+
+    @classmethod
+    def from_dict(cls, data) -> Filter:
+        """Inverse of to_dict; anything malformed gives an empty filter."""
+        try:
+            rules = [[TagTerm(str(tag), bool(required)) for tag, required in rule] for rule in data['rules']]
+            return cls(str(data.get('regex', '')), rules, bool(data.get('strict', True)))
+        except (KeyError, TypeError, ValueError, re.error):
+            return cls()

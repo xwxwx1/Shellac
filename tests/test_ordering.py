@@ -1,6 +1,14 @@
 import random
 
-from shellac.core.ordering import LoopMode, moved_to_edge, next_in_list, pick_next, shifted, weighted_choice
+from shellac.core.ordering import (
+    LoopMode,
+    ShuffleCycle,
+    moved_to_edge,
+    next_in_list,
+    pick_next,
+    shifted,
+    weighted_choice,
+)
 
 
 def seq(*values):
@@ -70,3 +78,34 @@ def test_moved_to_edge():
     order = list('abcde')
     assert moved_to_edge(order, ['d', 'b'], top=True) == list('bdace')
     assert moved_to_edge(order, ['b', 'd'], top=False) == list('acebd')
+
+
+def test_shuffle_cycle_plays_everything_before_repeating(make_song):
+    rng = random.Random(3)
+    songs = [make_song(n, weight=w) for n, w in zip('abcd', [1, 5, 2, 0])]
+    cycle = ShuffleCycle()
+    current = None
+    for _ in range(3):
+        picked = []
+        for _ in range(3):
+            current = cycle.choose(songs, current, rng.random)
+            picked.append(current)
+        assert sorted(s.name for s in picked) == ['a', 'b', 'c']  # weight-0 'd' never plays
+
+
+def test_shuffle_cycle_never_repeats_current_across_cycles(make_song):
+    a, b = make_song('a'), make_song('b')
+    cycle = ShuffleCycle()
+    current = a
+    cycle.mark_played(a)
+    for _ in range(10):
+        nxt = cycle.choose([a, b], current, random.random)
+        assert nxt is not current
+        current = nxt
+
+
+def test_pick_next_uses_cycle(make_song):
+    songs = [make_song(n) for n in 'abc']
+    cycle = ShuffleCycle()
+    seen = {pick_next(LoopMode.SHUFFLE, songs, None, manual=False, cycle=cycle) for _ in range(3)}
+    assert seen == set(songs)

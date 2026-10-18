@@ -44,6 +44,34 @@ def weighted_choice(songs, exclude=None, rng=random.random):
     return next(s for s, w in zip(reversed(candidates), reversed(weights)) if w > 0)
 
 
+class ShuffleCycle:
+    """Weighted shuffle that plays every eligible song once before any repeats.
+
+    Weight still decides the order (heavier songs tend to come earlier in each cycle); songs with
+    weight 0 are never picked unless nothing else has any weight.
+    """
+
+    def __init__(self):
+        self._played = set()
+
+    def mark_played(self, song):
+        if song is not None:
+            self._played.add(id(song))
+
+    def reset(self):
+        self._played.clear()
+
+    def choose(self, songs, current, rng=random.random):
+        eligible = [s for s in songs if s.weight > 0] or list(songs)
+        pool = [s for s in eligible if id(s) not in self._played and s is not current]
+        if not pool:  # everything has played: start a new cycle
+            self._played.clear()
+            pool = [s for s in eligible if s is not current] or eligible
+        song = weighted_choice(pool, None, rng)
+        self.mark_played(song)
+        return song
+
+
 def next_in_list(songs, current):
     """The song after `current`, wrapping around; the first song if `current` isn't listed."""
     if not songs:
@@ -55,20 +83,22 @@ def next_in_list(songs, current):
     return songs[(row + 1) % len(songs)]
 
 
-def pick_next(mode: LoopMode, songs, current, manual: bool, rng=random.random):
+def pick_next(mode: LoopMode, songs, current, manual: bool, rng=random.random, cycle: ShuffleCycle | None = None):
     """What to play after `current` among the visible `songs`.
 
     manual: the user pressed Next. That always advances (shuffled in shuffle mode, otherwise in
     order), while the end of a track follows the loop mode: repeat, advance, shuffle, or stop (None).
+    cycle: if given, shuffle avoids repeats until every song has played.
     """
+    def shuffled():
+        return cycle.choose(songs, current, rng) if cycle is not None else weighted_choice(songs, current, rng)
+
     if manual or mode == LoopMode.LIST:
-        if mode == LoopMode.SHUFFLE:
-            return weighted_choice(songs, current, rng)
-        return next_in_list(songs, current)
+        return shuffled() if mode == LoopMode.SHUFFLE else next_in_list(songs, current)
     if mode == LoopMode.REPEAT_ONE:
         return current if current is not None else next_in_list(songs, None)
     if mode == LoopMode.SHUFFLE:
-        return weighted_choice(songs, current, rng)
+        return shuffled()
     return None
 
 

@@ -61,8 +61,7 @@ def test_every_format_encodes(fmt, clip, tmp_path):
     ext = FORMATS[fmt][0]
     target = tmp_path / f'out.{ext}'
     subprocess.run(conversion_command(str(clip), str(target), fmt, start=1, end=2), check=True)
-    _, duration = read_metadata(str(target))
-    assert duration == pytest.approx(1, abs=0.15)
+    assert read_metadata(str(target)).duration == pytest.approx(1, abs=0.15)
 
 
 def test_download_trims_converts_and_cleans_up(clip, tmp_path):

@@ -88,6 +88,19 @@ class Playlist:
             self._songs[row] = song
         self._changed()
 
+    def relocate(self, song: Song, new_path: str):
+        """Point a song at a different file (e.g. one that was moved). Raises ValueError if that file is
+        already another song in the playlist."""
+        new_key = path_key(new_path)
+        other = self._by_key.get(new_key)
+        if other is not None and other is not song:
+            raise ValueError(f'{new_path} is already in the playlist as "{other.name}"')
+        del self._by_key[song.key]
+        song.path = new_path
+        song.__post_init__()
+        self._by_key[song.key] = song
+        song.check_missing()
+
     def update(self, song: Song, name: str | None = None, tags: list[str] | None = None,
                weight: int | None = None):
         if name is not None:

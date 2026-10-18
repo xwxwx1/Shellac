@@ -39,6 +39,9 @@ class Song:
     tags: list[str] = field(default_factory=list)
     weight: int = 1
     duration: float | None = None
+    album: str | None = None
+    # Whether the file was missing when last checked. Cached so painting the table never touches the disk.
+    missing: bool = False
 
     def __post_init__(self):
         self.path = normalize_path(self.path)
@@ -56,23 +59,56 @@ class Song:
     def exists(self) -> bool:
         return os.path.isfile(self.path)
 
+    def check_missing(self) -> bool:
+        self.missing = not self.exists
+        return self.missing
 
-def read_metadata(path: str) -> tuple[str | None, float | None]:
-    """(title, duration in seconds) from the file's tags; (None, None) if unreadable."""
-    import tinytag
+
+@dataclass
+class Metadata:
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    duration: float | None = None
+
+
+def read_metadata(path: str) -> Metadata:
+    """Tags and duration from the file; all None if it is missing or unreadable."""
+    from tinytag import TinyTag
 
     try:
-        tag = tinytag.TinyTag.get(path)
+        tag = TinyTag.get(path)
     except Exception:  # noqa: BLE001 - tinytag raises many error types for missing/corrupt files
-        return None, None
-    return (tag.title or None), tag.duration
+        return Metadata()
+    return Metadata(tag.title or None, tag.artist or tag.albumartist or None, tag.album or None, tag.duration)
+
+
+def read_cover(path: str) -> bytes | None:
+    """Embedded cover art (image file bytes), if any."""
+    from tinytag import TinyTag
+
+    try:
+        image = TinyTag.get(path, duration=False, image=True).images.any
+    except Exception:  # noqa: BLE001
+        return None
+    return image.data if image is not None else None
 
 
 def default_name(path: str, title: str | None = None) -> str:
     return title or os.path.splitext(os.path.basename(path))[0]
 
 
-def song_from_file(path: str, name: str | None = None, tags=(), weight: int = 1) -> Song:
-    """Build a Song, reading duration (and a default name) from the file. Safe off the GUI thread."""
-    title, duration = read_metadata(path)
-    return Song(path, name or default_name(path, title), list(tags), weight, duration)
+def song_from_file(path: str, name: str | None = None, tags=(), weight: int = 1,
+                   artist_as_tag: bool = False) -> Song:
+    """Build a Song, reading duration (and a default name) from the file. Safe off the GUI thread.
+
+    artist_as_tag: for a song added without tags, use the file's artist as its first tag, so it
+    shows in the Artist column and can be filtered on.
+    """
+    meta = read_metadata(path)
+    tags = list(tags)
+    if artist_as_tag and not tags and meta.artist:
+        tags = [meta.artist]
+    song = Song(path, name or default_name(path, meta.title), tags, weight, meta.duration, meta.album)
+    song.check_missing()
+    return song

@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.5",
     "qt-material>=2.14",
-    "tinytag>=1.9",
+    "tinytag>=2.0",
     "yt-dlp>=2025.1",
     "imageio-ffmpeg>=0.5",
     "platformdirs>=3",

@@ -46,3 +46,16 @@ def test_update_and_tags(make_song):
     p.update(a, name='new', tags=['Z'], weight=3)
     assert (a.name, a.tags, a.weight) == ('new', ['Z'], 3)
     assert p.all_tags() == ['Z', 'Y', 'X']
+
+
+def test_relocate(make_song, tmp_path):
+    a, b = make_song('a'), make_song('b')
+    p = Playlist([a, b])
+    new = tmp_path / 'moved' / 'a.mp3'
+    new.parent.mkdir()
+    new.touch()
+    p.relocate(a, str(new))
+    assert p.get(str(new)) is a and a.path == new.as_posix() and not a.missing
+    with pytest.raises(ValueError, match='already in the playlist'):
+        p.relocate(a, b.path)
+    assert p.get(str(new)) is a
