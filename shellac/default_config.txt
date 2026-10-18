@@ -1,6 +1,6 @@
 songdir:./songs/
 downloaddir:./downloading/
-downloadconfig:url:;tags:;ftype:mp3;yargs:--no-caption --debug;fiargs:;foargs:;weight:1;deletevid:True
+downloadconfig:{"tags": "", "format": "mp3", "ytdlp_args": "", "ffmpeg_args": "", "weight": 1, "keep_source": false}
 folders:
 loopmode:2
 savedir:

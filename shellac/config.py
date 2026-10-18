@@ -1,5 +1,7 @@
+import json
 import os
 import shutil
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
 from platformdirs import user_config_path, user_data_path
@@ -79,5 +81,58 @@ def edit_config(key, value):
     _write(config)
 
 
-def read_text_lines(path):
-    return _read_lines(path)
+def sidebar_folders(config):
+    """Extra folders for the file dialog sidebar, from the ';'-separated `folders` setting."""
+    return [f for f in (p.strip() for p in config.get('folders', '').split(';')) if f]
+
+
+def loop_mode(config):
+    try:
+        return int(config.get('loopmode', 2)) % 4
+    except ValueError:
+        return 2
+
+
+@dataclass
+class DownloadSettings:
+    """Remembered defaults for the download dialog."""
+    tags: str = ''
+    format: str = 'mp3'
+    ytdlp_args: str = ''
+    ffmpeg_args: str = ''
+    weight: int = 1
+    keep_source: bool = False
+
+    @classmethod
+    def parse(cls, value):
+        value = (value or '').strip()
+        if value.startswith('{'):
+            try:
+                data = json.loads(value)
+            except json.JSONDecodeError:
+                return cls()
+            known = {f.name for f in fields(cls)}
+            settings = cls(**{k: v for k, v in data.items() if k in known})
+        else:
+            settings = cls._parse_legacy(value)
+        try:
+            settings.weight = max(int(settings.weight), 0)
+        except (TypeError, ValueError):
+            settings.weight = 1
+        return settings
+
+    @classmethod
+    def _parse_legacy(cls, value):
+        # Pre-2.0 format: "url:;tags:;ftype:mp3;yargs:...;fiargs:;foargs:;weight:1;deletevid:True".
+        # yargs were you-get options, which yt-dlp doesn't understand, so they are dropped.
+        old = dict(part.split(':', 1) for part in value.split(';') if ':' in part)
+        return cls(
+            tags=old.get('tags', ''),
+            format=old.get('ftype') or 'mp3',
+            ffmpeg_args=old.get('foargs', ''),
+            weight=old.get('weight', 1),
+            keep_source=old.get('deletevid', 'True') != 'True',
+        )
+
+    def dump(self):
+        return json.dumps(asdict(self), ensure_ascii=False)

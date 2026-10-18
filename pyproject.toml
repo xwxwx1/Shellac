@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pyinstaller>=6"]
+dev = ["pytest>=8", "pytest-qt>=4.4", "ruff>=0.6", "pyinstaller>=6"]
 
 [project.gui-scripts]
 shellac = "shellac.__main__:main"
@@ -30,3 +30,10 @@ packages = ["shellac"]
 
 [tool.setuptools.package-data]
 shellac = ["assets/*", "styles/*", "default_config.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+extend-exclude = ["shellac/app.py"]
