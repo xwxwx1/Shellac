@@ -16,6 +16,7 @@ dependencies = [
     "keyboard>=0.13.5",
     "you-get>=0.4.1650",
     "pyffmpeg>=2.4.2",
+    "imageio-ffmpeg>=0.5",
     "platformdirs>=3",
 ]
 
