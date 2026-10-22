@@ -3,7 +3,6 @@ import subprocess
 
 import pytest
 from PyQt6.QtCore import QUrl
-from PyQt6.QtWidgets import QMessageBox
 
 from shellac import config
 from shellac.core.song import read_metadata
@@ -69,12 +68,14 @@ def test_download_trims_converts_and_cleans_up(clip, tmp_path):
     request = file_request(clip, name='A: song?', start=1, end=3.5, tags=['T'], weight=4,
                            format='ogg', keep_source=True)
     request.validate()
-    song = run_download(request, str(tmp_path / 'songs'), str(tmp_path / 'work'), messages.append)
+    song = run_download(request, str(tmp_path / 'songs'), str(tmp_path / 'work'),
+                       lambda message, fraction: messages.append((message, fraction)))
     assert song.path.endswith('/songs/A song.ogg')
     assert (song.name, song.tags, song.weight) == ('A: song?', ['T'], 4)
     assert song.duration == pytest.approx(2.5, abs=0.15)
     assert os.listdir(tmp_path / 'work') == ['A song.wav']  # kept source; temp folder removed
-    assert any('Converting' in m for m in messages)
+    assert any('Converting' in m for m, _ in messages)
+    assert all(f == -1 or 0 <= f <= 1 for _, f in messages)
 
     again = run_download(file_request(clip, name='A song', format='ogg'), str(tmp_path / 'songs'),
                          str(tmp_path / 'work'))
@@ -104,9 +105,9 @@ def test_window_download_adds_song(qtbot, clip, tmp_path, monkeypatch):
     assert song.name == 'Downloaded' and song.path.startswith(window.song_dir)
     assert not window.cancel_downloads_action.isEnabled()
 
-    warnings = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda *a: warnings.append(a[2]))
-    window.start_download(file_request(clip.with_name('missing.wav'), name='Broken'))
-    qtbot.waitUntil(lambda: bool(warnings) and not window.downloads, timeout=30000)
-    assert 'Broken' in warnings[0]
+    broken = window.start_download(file_request(clip.with_name('missing.wav'), name='Broken'))
+    row = window.download_panel.rows[0]
+    qtbot.waitUntil(lambda: not row.running, timeout=30000)
+    assert row.status.text().startswith('Failed') and row.button.text() == 'Retry'
+    assert broken is None and len(window.model.playlist) == 1
     window.close()

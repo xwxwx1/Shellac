@@ -43,17 +43,16 @@ from ..core.session import Session
 from ..core.song import AUDIO_EXTENSIONS, is_audio_file, read_cover, song_from_file
 from ..core.timefmt import format_time
 from ..core.upnext import UpNext
-from ..download.worker import DownloadJob
 from ..playback.player import MAX_VOLUME, AudioPlayer
 from ..resources import asset
 from ..system.mediakeys import GlobalMediaKeys
 from .dialogs.about_dialog import AboutDialog
-from .dialogs.download_dialog import DownloadDialog
 from .dialogs.filter_dialog import FilterDialog
 from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.song_dialog import SongDialog
 from .playlist_model import ALBUM, ARTIST, LENGTH, NAME, TAGS, WEIGHT, FilterProxy, PlaylistModel
 from .scanner import Scanner
+from .widgets.download_panel import DownloadPanel
 from .widgets.marquee import MarqueeLabel
 from .widgets.playlist_view import PlaylistView
 from .widgets.queue_panel import QueuePanel
@@ -88,7 +87,6 @@ class MainWindow(QMainWindow):
         self.media_keys = GlobalMediaKeys(self)
         self.tray = None
         self.current = None  # the song loaded in the player
-        self.downloads = []  # running DownloadJobs
 
         self._icons = {}
         self._dragging_slider = False
@@ -249,6 +247,19 @@ class MainWindow(QMainWindow):
         self.queue_dock.setObjectName('queue_dock')
         self.queue_dock.setWidget(self.queue_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.queue_dock)
+
+        self.download_panel = DownloadPanel(cfg.DownloadSettings.parse(self.config.get('downloadconfig')),
+                                            lambda: (self.song_dir, self.download_dir))
+        self.download_panel.songDownloaded.connect(self._on_song_downloaded)
+        self.download_panel.settingsChanged.connect(self._remember_download_settings)
+        self.download_panel.busyChanged.connect(self._on_downloads_busy)
+        self.download_panel.statusMessage.connect(lambda message: self.statusBar().showMessage(message, 6000))
+        self.downloads_dock = QDockWidget('Downloads', self)
+        self.downloads_dock.setObjectName('downloads_dock')
+        self.downloads_dock.setWidget(self.download_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.downloads_dock)
+        self.tabifyDockWidget(self.queue_dock, self.downloads_dock)
+        self.queue_dock.raise_()
         self.resizeDocks([self.tags_dock, self.queue_dock], [170, 210], Qt.Orientation.Horizontal)
 
     def _action(self, menu, text, shortcuts, slot, tip=''):
@@ -307,8 +318,8 @@ class MainWindow(QMainWindow):
         self._action(file, 'Check for Missing Files', [], self.check_missing)
         self._action(file, 'Remove Missing Songs', [], self.remove_missing)
         file.addSeparator()
-        self._action(file, 'Download from Internet…', ['Alt+Ctrl+D'], self.download_dialog,
-                     'Download audio from a URL with yt-dlp')
+        self._action(file, 'Download from Internet…', ['Alt+Ctrl+D'], self.show_downloads,
+                     'Download audio from bilibili, YouTube and other sites')
         self.cancel_downloads_action = self._action(file, 'Cancel Downloads', [], self.cancel_downloads)
         self.cancel_downloads_action.setEnabled(False)
         file.addSeparator()
@@ -330,6 +341,7 @@ class MainWindow(QMainWindow):
         view = bar.addMenu('View')
         view.addAction(self.tags_dock.toggleViewAction())
         view.addAction(self.queue_dock.toggleViewAction())
+        view.addAction(self.downloads_dock.toggleViewAction())
         self._action(view, 'Playlist Order (Clear Sort)', [], self.clear_sort)
         self._action(view, 'Show Playing Song', ['Ctrl+J'], self.reveal_current)
 
@@ -893,49 +905,34 @@ class MainWindow(QMainWindow):
     # downloads
     # =========================================================================================
 
-    def download_dialog(self):
-        dialog = DownloadDialog(self, cfg.DownloadSettings.parse(self.config.get('downloadconfig')))
-        if not dialog.exec():
-            return
-        if dialog.remember:
-            self.config['downloadconfig'] = dialog.settings().dump()
-            cfg.edit_config('downloadconfig', self.config['downloadconfig'])
-        self.start_download(dialog.request)
+    def show_downloads(self):
+        self.downloads_dock.show()
+        self.downloads_dock.raise_()
+        self.download_panel.focus_url()
+
+    @property
+    def downloads(self):
+        """Running download jobs."""
+        return self.download_panel.running_jobs
 
     def start_download(self, request):
-        job = DownloadJob(request, self.song_dir, self.download_dir, self)
-        job.progress.connect(self.download_label.setText)
-        job.succeeded.connect(self._on_download_succeeded)
-        # Bound methods (not lambdas) so Qt queues these onto the GUI thread; sender() is the job.
-        job.failed.connect(self._on_download_failed)
-        job.aborted.connect(self._on_download_aborted)
-        job.finished.connect(self._on_download_finished)
-        self.downloads.append(job)
-        self.cancel_downloads_action.setEnabled(True)
-        job.start()
+        self.download_panel.start(request)
 
-    def _on_download_succeeded(self, song):
+    def _remember_download_settings(self, settings):
+        self.config['downloadconfig'] = settings.dump()
+        cfg.edit_config('downloadconfig', self.config['downloadconfig'])
+
+    def _on_song_downloaded(self, song):
         self.model.add_songs([song])
-        self.statusBar().showMessage(f'Downloaded {song.name}', 6000)
 
-    def _on_download_failed(self, message):
-        name = self.sender().request.name
-        QMessageBox.warning(self, 'Download Failed', f'Could not download {name}:\n\n{message}')
-
-    def _on_download_aborted(self):
-        self.statusBar().showMessage(f'Cancelled download of {self.sender().request.name}', 6000)
-
-    def _on_download_finished(self):
-        job = self.sender()
-        self.downloads.remove(job)
-        job.deleteLater()
-        self.cancel_downloads_action.setEnabled(bool(self.downloads))
-        if not self.downloads:
-            self.download_label.setText('')
+    def _on_downloads_busy(self, busy):
+        self.cancel_downloads_action.setEnabled(busy)
+        running = len(self.downloads)
+        self.download_label.setText(f'Downloading {running}…' if running else '')
+        self.downloads_dock.setWindowTitle(f'Downloads ({running})' if running else 'Downloads')
 
     def cancel_downloads(self):
-        for job in self.downloads:
-            job.cancel()
+        self.download_panel.cancel_all()
 
     # =========================================================================================
     # settings and system integration
@@ -1114,9 +1111,7 @@ class MainWindow(QMainWindow):
         self._session_timer.stop()
         self.save_session()
         self.player.stop()
-        for job in list(self.downloads):
-            job.cancel()
-            job.wait(5000)
+        self.download_panel.shutdown()
         self.scanner.wait(3000)
         self.media_keys.disable()
         if self.tray is not None:

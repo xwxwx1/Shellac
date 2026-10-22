@@ -111,6 +111,14 @@ class DownloadSettings:
     ffmpeg_args: str = ''
     weight: int = 1
     keep_source: bool = False
+    # Where cookies come from ('none', 'browser' or 'file'); never the cookies themselves.
+    cookie_source: str = 'none'
+    cookie_browser: str = 'firefox'
+    cookie_file: str = ''
+
+    def cookies(self):
+        from .download.cookies import CookieSource
+        return CookieSource(self.cookie_source, self.cookie_browser, self.cookie_file)
 
     @classmethod
     def parse(cls, value):

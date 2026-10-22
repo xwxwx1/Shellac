@@ -44,9 +44,26 @@ Row numbers always refer to the song's position in the whole playlist.
 Missing files are shown in grey italics and skipped during playback. Right-click › Locate File…
 points a song at its new location; File › Remove Missing Songs cleans up.
 
-Download from Internet (Ctrl+Alt+D) fetches audio from any site yt-dlp supports, optionally
-trims it, and converts it into your song folder. ffmpeg on your PATH is used if present;
-otherwise the copy bundled with imageio-ffmpeg is.
+Downloads (Ctrl+Alt+D opens the panel, next to Up Next) fetch audio from bilibili, YouTube and
+the other sites yt-dlp supports, optionally trim it, and convert it into your song folder. Leave
+Name blank to use the video's title; with no tags, the uploader becomes the artist tag. Look up
+checks a link (and your cookies) before downloading. Running downloads show their progress in
+the panel, can be cancelled, and failed ones can be retried.
+
+bilibili links (bilibili.com/video/BV…, av…, b23.tv short links, ?p= for multi-part videos)
+use bilibili's own API rather than yt-dlp, because bilibili often shows yt-dlp a captcha page.
+Without an account you get the standard audio streams, up to 192 kbps; the 480p limit only
+affects video, which Shellac discards. Cookies from a logged-in browser add Hi-Res lossless
+audio (with a bilibili VIP membership) and members-only videos; Look up shows "logged in as …"
+when they work.
+
+Cookies can come from a browser or from a cookies.txt file (Netscape format, as exported by
+browser extensions such as "Get cookies.txt LOCALLY"). Firefox works directly. Chrome, Edge and
+other Chromium browsers on Windows now encrypt their cookies so other programs cannot read them,
+so with those, export a cookies.txt instead. Shellac remembers only which source you chose,
+never the cookies themselves.
+
+ffmpeg on your PATH is used if present; otherwise the copy bundled with imageio-ffmpeg is.
 
 Shellac remembers the playlist, the song and position, volume, filter, search, queue and window
 layout between runs. Only one window runs at a time: opening files with Shellac while it is
@@ -78,6 +95,9 @@ Development
     pip install -e ".[dev]"
     pytest
     ruff check shellac tests
+
+Set SHELLAC_NETWORK_TESTS=1 to also run a live bilibili download test (optionally choosing the
+video with SHELLAC_BILIBILI_URL).
 
 To build a standalone Windows executable (output in dist/Shellac/Shellac.exe):
 
