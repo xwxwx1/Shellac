@@ -99,6 +99,10 @@ Development
 Set SHELLAC_NETWORK_TESTS=1 to also run a live bilibili download test (optionally choosing the
 video with SHELLAC_BILIBILI_URL).
 
+To time filtering, searching and sorting on a large, densely tagged playlist:
+
+    python benchmarks/bench_library.py --songs 2000
+
 To build a standalone Windows executable (output in dist/Shellac/Shellac.exe):
 
     pyinstaller packaging/shellac.spec

@@ -21,6 +21,15 @@ EDITABLE = (NAME, TAGS, WEIGHT)
 SONGS_MIME = 'application/x-shellac-songs'
 
 
+def sort_key(song, column):
+    if column == LENGTH:
+        return song.duration if song.duration is not None else -1.0
+    if column == WEIGHT:
+        return song.weight
+    text = {NAME: song.name, TAGS: ', '.join(song.tags), ARTIST: song.artist, ALBUM: song.album or ''}[column]
+    return text.casefold()
+
+
 class PlaylistModel(QAbstractTableModel):
     songEdited = pyqtSignal(object)  # Song changed by in-place editing
 
@@ -30,11 +39,20 @@ class PlaylistModel(QAbstractTableModel):
         self._playing = None
         self._fonts = {}
         self._missing_color = QColor(150, 150, 150)
+        self._sort_keys = (None, None)  # (column, key per row), rebuilt after any change
 
     # --- read --------------------------------------------------------------------------------
 
+    # index/rowCount run tens of thousands of times per sort, so they skip the usual layers: the
+    # base index() would call back into Python twice more (rowCount and columnCount) for each one.
+    def index(self, row, column, parent=None):
+        in_range = 0 <= row < len(self.playlist._songs) and 0 <= column < len(COLUMNS)
+        if in_range and (parent is None or not parent.isValid()):
+            return self.createIndex(row, column)
+        return QModelIndex()
+
     def rowCount(self, parent=None):
-        return 0 if parent is not None and parent.isValid() else len(self.playlist)
+        return 0 if parent is not None and parent.isValid() else len(self.playlist._songs)
 
     def columnCount(self, parent=None):
         return 0 if parent is not None and parent.isValid() else len(COLUMNS)
@@ -78,12 +96,7 @@ class PlaylistModel(QAbstractTableModel):
         elif role == Qt.ItemDataRole.EditRole:
             return {NAME: song.name, TAGS: ', '.join(song.tags), WEIGHT: song.weight}.get(col)
         elif role == SortRole:
-            if col == LENGTH:
-                return song.duration if song.duration is not None else -1.0
-            if col == WEIGHT:
-                return song.weight
-            text = {NAME: song.name, TAGS: ', '.join(song.tags), ARTIST: song.artist, ALBUM: song.album or ''}[col]
-            return text.casefold()
+            return sort_key(song, col)
         elif role == SongRole:
             return song
         elif role == Qt.ItemDataRole.ToolTipRole:
@@ -109,6 +122,7 @@ class PlaylistModel(QAbstractTableModel):
             return False
         song = self.playlist[index.row()]
         col = index.column()
+        self._keys_changed()
         if col == NAME:
             name = str(value).strip()
             if not name:
@@ -129,6 +143,19 @@ class PlaylistModel(QAbstractTableModel):
 
     def song_at(self, row: int):
         return self.playlist[row]
+
+    def sort_keys(self, column) -> list:
+        """Sort key of every row for `column`, computed once and reused until the playlist changes."""
+        cached_column, keys = self._sort_keys
+        if cached_column != column or keys is None:
+            keys = [sort_key(song, column) for song in self.playlist]
+            self._sort_keys = (column, keys)
+        return keys
+
+    def _keys_changed(self):
+        # Called before the playlist changes, so the proxy never compares with stale keys while it
+        # reacts to the change signals.
+        self._sort_keys = (None, None)
 
     def row_of(self, song) -> int:
         return self.playlist.index(song)
@@ -161,6 +188,7 @@ class PlaylistModel(QAbstractTableModel):
         if not songs:
             return []
         row = len(self.playlist) if row is None else max(0, min(row, len(self.playlist)))
+        self._keys_changed()
         self.beginInsertRows(QModelIndex(), row, row + len(songs) - 1)
         added = self.playlist.add(songs, row)
         self.endInsertRows()
@@ -169,6 +197,7 @@ class PlaylistModel(QAbstractTableModel):
     def remove_songs(self, songs) -> list:
         rows = sorted((self.playlist.index(s) for s in songs if s in self.playlist), reverse=True)
         removed = []
+        self._keys_changed()
         # Remove contiguous runs from the bottom up so earlier rows stay valid.
         while rows:
             last = first = rows.pop(0)
@@ -183,12 +212,14 @@ class PlaylistModel(QAbstractTableModel):
         return removed
 
     def clear(self):
+        self._keys_changed()
         self.beginResetModel()
         self.playlist.clear()
         self._playing = None
         self.endResetModel()
 
     def update_song(self, song, name=None, tags=None, weight=None):
+        self._keys_changed()
         self.playlist.update(song, name, tags, weight)
         self._row_changed(song)
 
@@ -212,6 +243,7 @@ class PlaylistModel(QAbstractTableModel):
 
     def reorder(self, new_order):
         """Rearrange a subset of songs (see Playlist.reorder), keeping selections attached to their songs."""
+        self._keys_changed()
         self.layoutAboutToBeChanged.emit()
         old = self.persistentIndexList()
         anchors = [(self.playlist[i.row()], i.column()) for i in old]
@@ -236,6 +268,7 @@ class FilterProxy(QSortFilterProxyModel):
     def __init__(self, source: PlaylistModel, parent=None):
         super().__init__(parent)
         self.setSourceModel(source)
+        self._source = source
         self.setSortRole(SortRole)
         self._filter = Filter()
         self._search = ''
@@ -286,6 +319,14 @@ class FilterProxy(QSortFilterProxyModel):
         return (self._filter.check(song)
                 and all(tag in song.tags for tag in self._tags)
                 and (not self._search or self._matches_search(song)))
+
+    def lessThan(self, left, right):
+        # Qt calls this ~20k times for 2000 rows: look keys up in the model's cached table instead
+        # of going through data() (which made a header click take a quarter of a second or more).
+        column, keys = self._source._sort_keys
+        if keys is None or column != left.column():
+            keys = self._source.sort_keys(left.column())
+        return keys[left.row()] < keys[right.row()]
 
     def song_at(self, row: int):
         return self.index(row, 0).data(SongRole)
