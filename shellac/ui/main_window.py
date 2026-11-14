@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         self._action(play, 'Stop', [media.Key_MediaStop], self.stop_playback)
         self._action(play, 'Change Loop Mode', ['Alt+L', 'L'], self.cycle_loop_mode)
         self.no_repeat_action = self._action(play, 'Shuffle Without Repeats', [], self._toggle_no_repeat,
-                                             'Shuffle plays every song once before repeating any')
+                                             'Shuffle in cycles: each song plays as many times as its weight')
         self.no_repeat_action.setCheckable(True)
         self.no_repeat_action.setChecked(cfg.flag(self.config, 'norepeatshuffle'))
         self._action(play, 'Mute / Unmute', ['Alt+M'], self.toggle_mute)
@@ -378,8 +378,11 @@ class MainWindow(QMainWindow):
     # playback
     # =========================================================================================
 
-    def play_song(self, song, record=True) -> bool:
-        """Start a song. Returns False (and plays nothing) if its file is missing."""
+    def play_song(self, song, record=True, counted=False) -> bool:
+        """Start a song. Returns False (and plays nothing) if its file is missing.
+
+        counted: the shuffle cycle already used up one of the song's slots when it picked it.
+        """
         if song is None:
             self.stop_playback()
             return False
@@ -390,7 +393,8 @@ class MainWindow(QMainWindow):
         self.current = song
         if record:
             self.history.push(song)
-        self.shuffle_cycle.mark_played(song)
+        if not counted:
+            self.shuffle_cycle.mark_played(song)  # manual, queued and history plays use a slot too
         self.model.set_playing(song)
         self.player.play_file(song.path)
         self._show_now_playing()
@@ -446,15 +450,19 @@ class MainWindow(QMainWindow):
         for _ in range(len(visible) + len(self.queue) + 1):
             queued = self.queue.pop(lambda s: s in self.model.playlist)
             self.queue_panel.refresh()
+            counted = False
             if queued is not None:
                 song, record = queued, True
             else:
-                song = pick_next(self.loop_mode, visible, self.current, manual=manual, cycle=self._shuffle())
+                cycle = self._shuffle()
+                song = pick_next(self.loop_mode, visible, self.current, manual=manual, cycle=cycle)
                 if song is None:
                     self.stop_playback()
                     return
                 record = song is not self.current
-            if self.play_song(song, record=record):
+                # pick_next only consults the cycle in shuffle mode, and then it has counted the pick.
+                counted = cycle is not None and self.loop_mode == LoopMode.SHUFFLE
+            if self.play_song(song, record=record, counted=counted):
                 return
             if song is self.current:  # repeat-one on a file that just vanished
                 break

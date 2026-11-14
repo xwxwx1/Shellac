@@ -58,7 +58,7 @@ class SettingsDialog(QDialog):
         self.restore_session.setChecked(cfg.flag(config, 'restoresession'))
         self.artist_tags = QCheckBox("Use the file's artist as the first tag for songs added without tags")
         self.artist_tags.setChecked(cfg.flag(config, 'artisttags'))
-        self.no_repeat = QCheckBox('Shuffle plays every song once before repeating any')
+        self.no_repeat = QCheckBox('Shuffle in cycles: each song plays as many times as its weight')
         self.no_repeat.setChecked(cfg.flag(config, 'norepeatshuffle'))
         self.tray = QCheckBox('Show an icon in the system tray')
         self.tray.setChecked(cfg.flag(config, 'trayicon'))

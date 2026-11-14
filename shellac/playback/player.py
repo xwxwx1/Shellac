@@ -107,7 +107,7 @@ class AudioPlayer(QObject):
         self._apply_volume()
 
     def _apply_volume(self):
-        # The slider's 0..150% maps linearly onto Qt's 0..1, as in earlier versions.
+        # The slider's 0..150% maps linearly onto Qt's 0..1
         self._output.setVolume(0.0 if self._muted else self._volume / MAX_VOLUME)
 
     # --- signal handlers ---------------------------------------------------------------------

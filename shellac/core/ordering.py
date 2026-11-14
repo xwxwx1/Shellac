@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import random
+import weakref
 from enum import IntEnum
 
 
@@ -26,16 +27,9 @@ class LoopMode(IntEnum):
                 LoopMode.SHUFFLE: 'Weighted shuffle', LoopMode.STOP: 'Stop after song'}[self]
 
 
-def weighted_choice(songs, exclude=None, rng=random.random):
-    """Pick a song with probability proportional to its weight, avoiding `exclude` if possible."""
-    candidates = [s for s in songs if s is not exclude] or list(songs)
-    if not candidates:
-        return None
-    weights = [max(s.weight, 0) for s in candidates]
-    total = sum(weights)
-    if total == 0:
-        return candidates[int(rng() * len(candidates)) % len(candidates)]
-    target = rng() * total
+def _draw(candidates, weights, rng):
+    """One of `candidates`, with probability proportional to its weight (weights >= 0, total > 0)."""
+    target = rng() * sum(weights)
     for song, weight in zip(candidates, weights):
         if target < weight:
             return song
@@ -44,30 +38,69 @@ def weighted_choice(songs, exclude=None, rng=random.random):
     return next(s for s, w in zip(reversed(candidates), reversed(weights)) if w > 0)
 
 
-class ShuffleCycle:
-    """Weighted shuffle that plays every eligible song once before any repeats.
+def weighted_choice(songs, exclude=None, rng=random.random):
+    """Pick a song with probability proportional to its weight, avoiding `exclude` if possible."""
+    candidates = [s for s in songs if s is not exclude] or list(songs)
+    if not candidates:
+        return None
+    weights = [max(s.weight, 0) for s in candidates]
+    if sum(weights) == 0:
+        return unweighted_choice(candidates, None, rng)
+    return _draw(candidates, weights, rng)
 
-    Weight still decides the order (heavier songs tend to come earlier in each cycle); songs with
-    weight 0 are never picked unless nothing else has any weight.
+
+def unweighted_choice(songs, exclude=None, rng=random.random):
+    """Pick a song with uniform probability, avoiding `exclude` if possible; None if there are none."""
+    candidates = [s for s in songs if s is not exclude] or list(songs)
+    if not candidates:
+        return None
+    return candidates[int(rng() * len(candidates)) % len(candidates)]
+
+
+class ShuffleCycle:
+    """Weighted shuffle in cycles: a song with weight 3 gets 3 slots per cycle, and each pick takes
+    one of the slots still left, uniformly at random.
+
+    - A song is never picked twice in a row while another song has slots left. If only the playing
+      song has slots left, a new cycle starts instead (its leftover slots are dropped).
+    - Weight 0 means never, unless every song has weight 0: then picks are plain uniform.
+    - Manual plays count too: mark_played() uses up one of the song's slots.
     """
 
     def __init__(self):
-        self._played = set()
+        # Keyed by the Song itself (weakly), so a removed song's count can't pass to a new one.
+        self._played = weakref.WeakKeyDictionary()
+
+    def plays(self, song) -> int:
+        """How many slots `song` has used this cycle."""
+        return self._played.get(song, 0)
 
     def mark_played(self, song):
         if song is not None:
-            self._played.add(id(song))
+            self._played[song] = self._played.get(song, 0) + 1
 
     def reset(self):
         self._played.clear()
 
+    def _slots_left(self, songs, current):
+        return [0 if s is current else max(s.weight - self._played.get(s, 0), 0) for s in songs]
+
     def choose(self, songs, current, rng=random.random):
-        eligible = [s for s in songs if s.weight > 0] or list(songs)
-        pool = [s for s in eligible if id(s) not in self._played and s is not current]
-        if not pool:  # everything has played: start a new cycle
+        """Pick the next song and use up one of its slots. None if `songs` is empty."""
+        songs = list(songs)
+        if not songs:
+            return None
+        left = self._slots_left(songs, current)
+        if not any(left):  # this cycle is used up: start the next one
             self._played.clear()
-            pool = [s for s in eligible if s is not current] or eligible
-        song = weighted_choice(pool, None, rng)
+            left = self._slots_left(songs, current)
+        if any(left):
+            # Proportional to slots left == uniform over the remaining slots, without listing them.
+            song = _draw(songs, left, rng)
+        elif any(s.weight > 0 for s in songs):
+            song = current  # the playing song is the only one with any weight
+        else:
+            song = unweighted_choice(songs, current, rng)  # every weight is 0
         self.mark_played(song)
         return song
 
@@ -88,7 +121,8 @@ def pick_next(mode: LoopMode, songs, current, manual: bool, rng=random.random, c
 
     manual: the user pressed Next. That always advances (shuffled in shuffle mode, otherwise in
     order), while the end of a track follows the loop mode: repeat, advance, shuffle, or stop (None).
-    cycle: if given, shuffle avoids repeats until every song has played.
+    cycle: if given, shuffle plays each song `weight` times per cycle (see ShuffleCycle). It uses up a slot
+    of whatever it picks, so callers must not mark that pick as played again.
     """
     def shuffled():
         return cycle.choose(songs, current, rng) if cycle is not None else weighted_choice(songs, current, rng)

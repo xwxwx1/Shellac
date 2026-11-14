@@ -1,4 +1,4 @@
-"""An ordered collection of unique songs. No Qt here: the UI model wraps this."""
+"""An ordered collection of unique songs."""
 from __future__ import annotations
 
 from collections.abc import Iterable

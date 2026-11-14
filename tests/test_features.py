@@ -187,16 +187,29 @@ def test_queue_forgets_removed_songs_and_plays_on_double_click(qtbot, window):
     assert window.current is c and list(window.queue) == [a]
 
 
-def test_shuffle_without_repeats(qtbot, window):
+def test_shuffle_cycle_through_the_window(qtbot, window):
+    a, b, c = window.model.playlist
+    window.model.update_song(b, weight=2)  # a cycle is a, b, b, c
     window.loop_mode = LoopMode.SHUFFLE
     window.no_repeat_action.trigger()
     assert config.flag(config.load_config(), 'norepeatshuffle')
-    window.play_song(window.model.playlist[0])
-    played = {window.current.name}
-    for _ in range(2):
+    cycle = window.shuffle_cycle
+
+    window.play_song(a)  # a manual play uses up a's slot
+    assert [cycle.plays(s) for s in (a, b, c)] == [1, 0, 0]
+    previous = a
+    for _ in range(8):
+        before = sum(cycle.plays(s) for s in (a, b, c))
         window.next()
-        played.add(window.current.name)
-    assert played == {'alpha', 'bravo', 'charlie'}
+        after = [cycle.plays(s) for s in (a, b, c)]
+        assert window.current is not previous
+        # Each pick uses exactly one slot: counted by the cycle, not again by play_song.
+        assert sum(after) == before + 1 or sum(after) == 1  # 1: a new cycle started
+        assert all(n <= s.weight for n, s in zip(after, (a, b, c)))
+        previous = window.current
+
+    window._on_track_ended()  # the end of a track goes through the same cycle
+    assert window.current is not previous
 
 
 # --- missing files ---------------------------------------------------------------------------
